@@ -1,0 +1,131 @@
+---
+title: "Data Wrangling"
+author: "Natalie Love"
+date: "1/22/2020"
+output: html_document
+---
+
+#Load Packages
+```{r}
+library(tidyverse)
+```
+
+##Load Data
+There were a lot of parsing propblems when I first tried to load in symbiota occurances csv, meaning R was having trouble determining what type of data is in each column, especially because there were many blanks in many columns. This is especially true for eventDate. Some dates are listed like 01/05/05 and some 1885-01-05 and some do not have a day designated (e.g., 1885-01-00). This code manually parse each column and can be modified if needed.
+```{r}
+esca_raw <- read_csv("SymbOutput_2020-01-22_105037_DwC-A/occurrences.csv", col_types = cols(
+  id = col_double(),
+  institutionCode = col_character(),
+  collectionCode = col_character(),
+  ownerInstitutionCode = col_character(),
+  basisOfRecord = col_character(),
+  occurrenceID = col_character(),
+  catalogNumber = col_character(),
+  otherCatalogNumbers = col_character(),
+  kingdom = col_character(),
+  phylum = col_character(),
+  class = col_character(),
+  order = col_character(),
+  family = col_character(),
+  scientificName = col_character(),
+  taxonID = col_double(),
+  scientificNameAuthorship = col_character(),
+  genus = col_character(),
+  specificEpithet = col_character(),
+  taxonRank = col_character(),
+  infraspecificEpithet = col_character(),
+  recordedBy = col_character(),
+  associatedCollectors = col_character(),
+  eventDate = col_character(),
+  year = col_double(),
+  month = col_double(),
+  day = col_double(),
+  startDayOfYear = col_double(),
+  endDayOfYear = col_double(),
+  verbatimEventDate = col_character(),
+  occurrenceRemarks = col_character(),
+  habitat = col_character(),
+  substrate = col_character(),
+  verbatimAttributes = col_character(),
+  fieldNumber = col_character(),
+  informationWithheld = col_character(),
+  dataGeneralizations = col_character(),
+  dynamicProperties = col_character(),
+  associatedTaxa = col_character(),
+  reproductiveCondition = col_character(),
+  establishmentMeans = col_character(),
+  cultivationStatus = col_character(),
+  lifeStage = col_character(),
+  sex = col_character(),
+  individualCount = col_double(),
+  preparations = col_character(),
+  country = col_character(),
+  stateProvince = col_character(),
+  county = col_character(),
+  municipality = col_character(),
+  locality = col_character(),
+  locationRemarks = col_character(),
+  localitySecurity = col_double(),
+  localitySecurityReason = col_character(),
+  decimalLatitude = col_double(),
+  decimalLongitude = col_double(),
+  geodeticDatum = col_character(),
+  coordinateUncertaintyInMeters = col_double(),
+  verbatimCoordinates = col_character(),
+  georeferencedBy = col_character(),
+  georeferenceProtocol = col_character(),
+  georeferenceSources = col_character(),
+  georeferenceVerificationStatus = col_character(),
+  georeferenceRemarks = col_character(),
+  minimumElevationInMeters = col_double(),
+  maximumElevationInMeters = col_double(),
+  minimumDepthInMeters = col_double(),
+  maximumDepthInMeters = col_double(),
+  verbatimDepth = col_character(),
+  verbatimElevation = col_character(),
+  disposition = col_character(),
+  language = col_character(),
+  recordEnteredBy = col_character(),
+  modified = col_character(),
+  sourcePrimaryKey_dbpk = col_character(),
+  collId = col_double(),
+  recordId = col_character(),
+  references = col_character()
+))
+View(esca_raw)
+```
+
+##Filter
+1. Remove records with no specific DOY of collection
+2. Remove records with no specific latitude and longitude
+3. Remove records with an error radius greater than a specified value (in this case, 4000 meters)
+4. Remove records outside the US. PRISM data only covers the continental USA, so records outside the USA may return wonky values when we extract data from PRISM
+
+This example started with 4071 records and was reduced to 664 records based on the filtering criteria
+```{r}
+#get those records that have a specified day of year (DOY) of collection
+esca_occurances <- esca_raw %>% 
+  filter(!is.na(startDayOfYear)) %>% #remove records with NA values for DOY
+  filter(is.na(endDayOfYear)) %>% #only include those records that have NA for the end DOY
+  filter(!is.na(decimalLatitude) & !is.na(decimalLongitude)) %>% #remove records that do not have a specific latitude and longitude
+  filter(coordinateUncertaintyInMeters < 4000) %>%
+  filter(country == "United States")
+
+```
+
+##Add phenology filters
+1. Select only those that are have some kind of specified reproductive condition (i.e., not NA or blank)
+From 664 records we have 416 with pheno observations
+```{r}
+esca_pheno <- esca_occurances %>% filter(!is.na(reproductiveCondition)) 
+```
+
+##Write as CSV
+```{r}
+write_csv(esca_pheno, "esca_pheno.csv")
+```
+
+
+##Issues to consider
+1. How to remove duplicates? It is hard to identify those specimens that are collected on the same date and the same place but sent to different herbaria.
+2. The error radius should match the resolution of the climate data - I use the 4km  resolution climate data from PRISM in the Get Climate Data step

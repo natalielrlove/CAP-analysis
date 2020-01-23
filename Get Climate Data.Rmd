@@ -1,0 +1,221 @@
+---
+title: "Get Climate Data for each Record"
+author: "Natalie Love"
+date: "1/22/2020"
+output: html_document
+---
+
+##Load Packages
+If needed, install packages before loading
+```{r}
+library(tidyverse)
+library(prism)
+library(raster) #need package sp to use raster
+library(sp)
+```
+
+##Load data
+Need this code to parse the symbiota csv properly
+```{r}
+esca_pheno <- read_csv("esca_pheno.csv", col_types = cols(
+  id = col_double(),
+  institutionCode = col_character(),
+  collectionCode = col_character(),
+  ownerInstitutionCode = col_character(),
+  basisOfRecord = col_character(),
+  occurrenceID = col_character(),
+  catalogNumber = col_character(),
+  otherCatalogNumbers = col_character(),
+  kingdom = col_character(),
+  phylum = col_character(),
+  class = col_character(),
+  order = col_character(),
+  family = col_character(),
+  scientificName = col_character(),
+  taxonID = col_double(),
+  scientificNameAuthorship = col_character(),
+  genus = col_character(),
+  specificEpithet = col_character(),
+  taxonRank = col_character(),
+  infraspecificEpithet = col_character(),
+  recordedBy = col_character(),
+  associatedCollectors = col_character(),
+  eventDate = col_character(),
+  year = col_double(),
+  month = col_double(),
+  day = col_double(),
+  startDayOfYear = col_double(),
+  endDayOfYear = col_double(),
+  verbatimEventDate = col_character(),
+  occurrenceRemarks = col_character(),
+  habitat = col_character(),
+  substrate = col_character(),
+  verbatimAttributes = col_character(),
+  fieldNumber = col_character(),
+  informationWithheld = col_character(),
+  dataGeneralizations = col_character(),
+  dynamicProperties = col_character(),
+  associatedTaxa = col_character(),
+  reproductiveCondition = col_character(),
+  establishmentMeans = col_character(),
+  cultivationStatus = col_character(),
+  lifeStage = col_character(),
+  sex = col_character(),
+  individualCount = col_double(),
+  preparations = col_character(),
+  country = col_character(),
+  stateProvince = col_character(),
+  county = col_character(),
+  municipality = col_character(),
+  locality = col_character(),
+  locationRemarks = col_character(),
+  localitySecurity = col_double(),
+  localitySecurityReason = col_character(),
+  decimalLatitude = col_double(),
+  decimalLongitude = col_double(),
+  geodeticDatum = col_character(),
+  coordinateUncertaintyInMeters = col_double(),
+  verbatimCoordinates = col_character(),
+  georeferencedBy = col_character(),
+  georeferenceProtocol = col_character(),
+  georeferenceSources = col_character(),
+  georeferenceVerificationStatus = col_character(),
+  georeferenceRemarks = col_character(),
+  minimumElevationInMeters = col_double(),
+  maximumElevationInMeters = col_double(),
+  minimumDepthInMeters = col_double(),
+  maximumDepthInMeters = col_double(),
+  verbatimDepth = col_character(),
+  verbatimElevation = col_character(),
+  disposition = col_character(),
+  language = col_character(),
+  recordEnteredBy = col_character(),
+  modified = col_character(),
+  sourcePrimaryKey_dbpk = col_character(),
+  collId = col_double(),
+  recordId = col_character(),
+  references = col_character()
+))
+View(esca_pheno)
+```
+
+##Download PRISM data - this will download raster files to a specified directory
+My specified directory is a folder called prismtmp in my project workind directory
+This code downloads normal data, but other functions will download montly or daily data during the year of collection
+```{r}
+options(prism.path = "prismtmp")
+
+#I am downloading march, april, may tmean so I can create a spring Tave variable
+get_prism_normals(type="tmean",resolution = "4km", mon = 3:5, keepZip=FALSE)
+
+#I am downloading december, january, february PPT so I can create a winter average PPT variable
+get_prism_normals(type = "ppt", resolution = "4km", mon = c(12,1,2), keepZip = FALSE)
+```
+
+##Visualize rasters
+this uses code from the prism package for easy visualization. 
+```{r}
+#This will print a list of the prism data available, you can use this list to determine which number corresponds to which dataframe for plotting
+ls_prism_data()
+
+#March Tmean
+prism_image(ls_prism_data()[4,1])
+
+#April Tmean
+prism_image(ls_prism_data()[5,1])
+
+#May Tmean
+prism_image(ls_prism_data()[6,1])
+
+#December PPT
+prism_image(ls_prism_data()[3,1])
+
+#January PPT
+prism_image(ls_prism_data()[1,1])
+
+#February PPT
+prism_image(ls_prism_data()[2,1])
+```
+
+
+##Load Rasters in to R
+The package raster needs the absolute path name in order to load rasters. This is not as important if you are working in a project
+```{r}
+#get absolute path name (use ls_prism_data print out to see which numbers refer to which rasters)
+marchTmean_path <- ls_prism_data(absPath=T)[4,2]
+aprilTmean_path <- ls_prism_data(absPath=T)[5,2]
+mayTmean_path  <- ls_prism_data(absPath=T)[6,2]
+decPPT_path <- ls_prism_data(absPath=T)[3,2]
+janPPT_path <- ls_prism_data(absPath=T)[1,2]
+febPPT_path <- ls_prism_data(absPath=T)[2,2]
+
+#load as rasters
+marchTmean_norm <- raster(marchTmean_path)
+aprilTmean_norm <- raster(aprilTmean_path)
+mayTmean_norm <- raster(mayTmean_path)
+decPPT_norm <- raster(decPPT_path)
+janPPT_norm <- raster(janPPT_path)
+febPPT_norm <- raster(febPPT_path)
+```
+
+##Plot
+You can also plot raster files with base code function plot, unit is °C for temp and mm for PPT
+```{r}
+plot(marchTmean_norm)
+plot(aprilTmean_norm)
+plot(mayTmean_norm)
+```
+
+##Create a mean spring temperature raster using the march, april, may raster
+First, we need to make a function that will average each cell
+```{r}
+#create function
+spring_mean <- function(x,y,z){
+  return((x + y + z)/3)
+}
+
+#calculate spring Tmean by averaging cells in march, april, may raster
+spring_tmean <- overlay(marchTmean_norm, aprilTmean_norm, mayTmean_norm, fun = spring_mean)
+```
+
+##Create a winter cumulative PPT raster with the december, january, and february normals
+```{r}
+winter_mean <- function(x,y,z){
+  return(x + y + z)
+}
+
+#calculate winter cumulative PPT by adding cells in december, january, february rasters
+winter_ppt <- overlay(decPPT_norm, janPPT_norm, febPPT_norm, fun = winter_mean)
+```
+
+
+#Plot newly calculated rasters
+```{r}
+plot(spring_tmean)
+plot(winter_ppt)
+```
+
+##Get climate value for each record in our cleaned Eschscholzia californica phenology dataset
+```{r}
+#To extract data from the raster at a given point, we need to specify longitude and latitude columns in esca_pheno as [longitude:latitude], i.e. [x,y]
+
+#get spring Tmean
+esca_pheno_Tmean <- enframe( x = extract(spring_tmean, esca_pheno[55:54]), value = "springTmean_norm", name = NULL)
+
+#get winter PPT
+esca_pheno_PPT <- enframe( x = extract(winter_ppt, esca_pheno[55:54]), value = "winterPPT_norm", name = NULL)
+
+#combine climate data with the rest of the dataset so we have climate data and DOY (or any other relatvent variable from the occurances data frame) in the same data frame
+esca_pheno_climate <- esca_pheno %>%
+  bind_cols(esca_pheno_Tmean) %>%
+  bind_cols(esca_pheno_PPT)
+
+#Take a look at the last three columns of the dataframe - springTmean and winterPPT are now added to each record
+utils::head(esca_pheno_climate[77:79],10)
+```
+
+##Write CSV with climate data
+```{r}
+write_csv(esca_pheno_climate, "esca_pheno_climate.csv")
+```
+
