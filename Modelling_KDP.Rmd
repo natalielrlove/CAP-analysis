@@ -1,0 +1,281 @@
+---
+title: 'Assignment 4: Manipulating and Modeling Data'
+author: "Natalie Love and Katie Pearson"
+date: "1/29/2020"
+output:
+  html_document: default
+---
+##Install packages
+You only need to do this the very first time you use one of these packages. Once a package is installed on your computer, you only need to load them (see below).
+```{r}
+install.packages("tidyverse")
+install.packages("broom")
+install.packages("car")
+install.packages("leaflet")
+install.packages("visreg")
+install.packages("raster")
+install.packages("sp")
+```
+
+##Load Packages
+```{r}
+library(tidyverse)
+library(broom) #for tidying model output
+library(car) #if you want to use type 3 sums of squares
+library(leaflet)
+library(visreg) #for visualizing partial effect plots
+library(raster) #need package sp to use raster
+library(sp)
+```
+
+##Load specimen data
+Load the dataframe (csv file) that contains data on specimens of Eschscholzia californica.
+Note that the CSV file "occurrences" must be in the same folder as this (.Rmd) file.
+```{r}
+poppydata <- read_csv("occurrences.csv", col_types = cols(
+  id = col_double(),
+  institutionCode = col_character(),
+  collectionCode = col_character(),
+  ownerInstitutionCode = col_character(),
+  basisOfRecord = col_character(),
+  occurrenceID = col_character(),
+  catalogNumber = col_character(),
+  otherCatalogNumbers = col_character(),
+  kingdom = col_character(),
+  phylum = col_character(),
+  class = col_character(),
+  order = col_character(),
+  family = col_character(),
+  scientificName = col_character(),
+  taxonID = col_double(),
+  scientificNameAuthorship = col_character(),
+  genus = col_character(),
+  specificEpithet = col_character(),
+  taxonRank = col_character(),
+  infraspecificEpithet = col_character(),
+  recordedBy = col_character(),
+  associatedCollectors = col_character(),
+  eventDate = col_character(),
+  year = col_double(),
+  month = col_double(),
+  day = col_double(),
+  startDayOfYear = col_double(),
+  endDayOfYear = col_double(),
+  verbatimEventDate = col_character(),
+  occurrenceRemarks = col_character(),
+  habitat = col_character(),
+  substrate = col_character(),
+  verbatimAttributes = col_character(),
+  fieldNumber = col_character(),
+  informationWithheld = col_character(),
+  dataGeneralizations = col_character(),
+  dynamicProperties = col_character(),
+  associatedTaxa = col_character(),
+  reproductiveCondition = col_character(),
+  establishmentMeans = col_character(),
+  cultivationStatus = col_character(),
+  lifeStage = col_character(),
+  sex = col_character(),
+  individualCount = col_double(),
+  preparations = col_character(),
+  country = col_character(),
+  stateProvince = col_character(),
+  county = col_character(),
+  municipality = col_character(),
+  locality = col_character(),
+  locationRemarks = col_character(),
+  localitySecurity = col_double(),
+  localitySecurityReason = col_character(),
+  decimalLatitude = col_double(),
+  decimalLongitude = col_double(),
+  geodeticDatum = col_character(),
+  coordinateUncertaintyInMeters = col_double(),
+  verbatimCoordinates = col_character(),
+  georeferencedBy = col_character(),
+  georeferenceProtocol = col_character(),
+  georeferenceSources = col_character(),
+  georeferenceVerificationStatus = col_character(),
+  georeferenceRemarks = col_character(),
+  minimumElevationInMeters = col_double(),
+  maximumElevationInMeters = col_double(),
+  minimumDepthInMeters = col_double(),
+  maximumDepthInMeters = col_double(),
+  verbatimDepth = col_character(),
+  verbatimElevation = col_character(),
+  disposition = col_character(),
+  language = col_character(),
+  recordEnteredBy = col_character(),
+  modified = col_character(),
+  sourcePrimaryKey_dbpk = col_character(),
+  collId = col_double(),
+  recordId = col_character(),
+  references = col_character()
+))
+View(poppydata)
+```
+
+##Explore collection dates of specimens
+Look at distribution of day of collection of specimen records. Note that this is in the form of a "day of year" (DOY) between 1 and 365.
+```{r}
+#histogram of collection dates
+ggplot(data = poppydata, aes(x = startDayOfYear)) + geom_histogram(binwidth = 30, color ="black", fill = "white") + 
+  theme_bw()
+
+#calculate mean collection date
+mean(poppydata$startDayOfYear, na.rm=TRUE)
+
+#calculate standard deviation of collection date
+sd(poppydata$startDayOfYear,na.rm=TRUE)
+```
+
+##Plot a map of collection locations
+Leaflet is one way to make an interactive map.
+```{r}
+#Determine how many specimens do not have georeferences
+sum(is.na(poppydata$decimalLatitude))
+
+#Plot a map of collection locations
+leaflet(poppydata) %>%
+  addTiles() %>%
+  addMarkers(lng = poppydata$decimalLongitude, lat = poppydata$decimalLatitude)
+```
+
+##Attach phenological data to specimen data
+In CCH2, phenological data are stored in a separate table from the core specimen data. We need to combine these two in order to examine phenological trends.
+
+```{r}
+#Load phenological data
+pheno <- read_csv("measurementOrFact.csv", col_types = cols(
+  coreid = col_double(),
+  measurementType = col_character(),
+  measurementTypeID	= col_character(),
+  measurementValue = col_character(),
+  measurementValueID	= col_character(),
+  measurementUnit = col_character(),
+  measurementDeterminedDate = col_character(),
+  measurementDeterminedBy = col_character()
+))
+View(pheno)
+```
+
+If we take a look at these phenological data, we can see that they are stored with one row per score, rather than one row per specimen.
+For the sake of simplicity, let's just focus on the phenological scores of "Open flower present" for these analyses.
+```{r}
+#Restrict phenological data to only scores of "open flower present""
+openfws <- subset(pheno,pheno$measurementType=="Open Flower" & pheno$measurementValue=="present")
+
+#Now let's attach phenological data to specimen data
+poppyPheno <- merge(poppydata, openfws, by.x="id", by.y="coreid")
+View(poppyPheno)
+```
+
+##Attach climate data to specimen/phenological data
+You should have spring tmean and winter_ppt two raster files in a folder called seasonal_prism.
+```{r}
+#Load climate data
+spring_tmean <- raster("seasonal_prism/spring_tmean.grd")
+winter_ppt <- raster("seasonal_prism/winter_ppt.grd")
+
+#Visualize raster data
+plot(spring_tmean)
+plot(winter_ppt)
+```
+
+The climate data we have is in a format called a "raster". We need to extract the appropriate data that corresponds to the location of each specimen from this raster.
+```{r}
+#To extract data from the raster at a given point, we need to specify longitude and latitude columns in esca_pheno as [longitude:latitude], i.e. [x,y]
+
+#get spring temperature
+poppyTemp <- enframe(x = extract(spring_tmean, poppydPheno[55:54]), value = "springTmean_norm", name = NULL)
+
+#get winter PPT
+poppyPPT <- enframe(x = extract(winter_ppt, poppyPheno[55:54]), value = "winterPPT_norm", name = NULL)
+
+#combine climate data with the rest of the dataset so we have climate data and DOY (or any other relatvent variable from the occurances data frame) in the same data frame
+poppyPhenoClim <- poppyPheno %>%
+  bind_cols(poppyTemp) %>%
+  bind_cols(poppyPPT)
+
+#Take a look at the last three columns of the dataframe - springTmean and winterPPT are now added to each record
+utils::head(poppyPhenoClim[90:92],10)
+```
+
+##Visualize climate data
+We can use a simple plot to detect problems with the data.
+```{r}
+ggplot(data = poppyPhenoClim, aes(x = springTmean_norm, y = startDayOfYear)) + geom_point() + theme_bw()
+
+ggplot(data = esca_pheno_climate, aes(x = winterPPT_norm, y = startDayOfYear)) + geom_point() + theme_bw()
+```
+
+##Construct Phenoclimatic Models
+```{r}
+#simple regressions
+#spring temp - 30-year normal
+temp_model <- lm(startDayOfYear ~ springTmean_norm, data = poppyPhenoClim)
+summary(temp_model)
+
+#winter PPT - 30-year normal
+ppt_model <- lm(startDayOfYear ~ winterPPT_norm, data = poppyPhenoClim)
+summary(ppt_model)
+
+#multiple regression and interaction
+climate_model <- lm(startDayOfYear ~ springTmean_norm + winterPPT_norm, data = poppyPhenoClim)
+summary(climate_model)
+
+climate_inter <- lm(startDayOfYear ~ springTmean_norm + winterPPT_norm + springTmean_norm*winterPPT_norm, data = poppyPhenoClim)
+summary(climate_inter)
+```
+
+##Visualize model results
+There are multiple ways to visualize model output. The package visreg makes it pretty easy to visualize partial effect plots from model objects. This is especially useful for multivariate regressions and interactions. ggplot can be used to visualize simple regressions.
+```{r}
+visreg(climate_model, xvar = "winterPPT_norm", xlab = "Cumulative winter PPT - 30yr normal", ylab = "DOY")
+visreg(climate_model, xvar = "springTmean_norm", xlab = "Spring Tave - 30yr Normal", ylab = "DOY")
+
+#for interactions
+visreg(climate_inter, xvar = "winterPPT_norm", by = "springTmean_norm", overlay = TRUE, xlab = "Cumulative winter PPT - 30yr normal", ylab = "DOY")
+```
+
+##Export model results
+Some simple code can be used to export model summaries as csv files
+```{r}
+#example using the temperature model
+write_csv(tidy(climate_model), "poppy_climate_model.csv")
+```
+
+###############
+##The following code is in development
+
+#Regression diagnostics: Checking assumptions of your model
+#Guided by Linear Models in R by Julian J. Faraway 2009
+#The general assumptions are:
+#1. Constant variance
+#2. Normal distribution of errors
+#3. Errors are independent
+
+par(mfrow=c (3, 3))
+#check for constant variance
+for (i in 1:9) plot (1:50, rnorm (50)) #Constant variance
+for (i in 1:9) plot (1:50, (1:50)*rnorm(50)) #Strong nonconstant variance
+for (i in 1:9) plot (1:50, sqrt ((1:50))*rnorm(50)) #Mild nonconstant variance
+for (i in 1:9) plot(1:50, cos ((1:50)*pi/25)+rnorm(50)) #Nonlinearity
+
+#check for normality of errors
+for (i in 1:9) qqnorm (rnorm (50) ) #Normal
+for (i in 1:9) qqnorm (exp (rnorm (50) ) ) #Lognormal—an example of a skewed distribution
+#if found, may need to transform the response
+
+for (i in 1:9) qqnorm (rcauchy (50) ) #Cauchy—an example of a long-tailed (platykurtic) distribution
+#use another method (or just couch your results in this knowledge)
+
+for (i in 1:9) qqnorm (runif (50) ) #Uniform—an example of a short-tailed (leptokurtic) distribution
+#consequences are often small and can be ignored
+
+#############
+```{r}
+#you can also look at histograms of transformations (log and square root shown here)
+ggplot(data = poppydata, aes(x = log10(esca_pheno_climate$startDayOfYear))) + geom_histogram(binwidth = 0.1, color = "black", fill = "white") + theme_bw()
+
+ggplot(data = esca_pheno_climate, aes(x = sqrt(esca_pheno_climate$startDayOfYear))) + geom_histogram(binwidth = 1, color = "black", fill = "white") + theme_bw()
+```

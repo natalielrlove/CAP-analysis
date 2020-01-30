@@ -219,3 +219,8 @@ utils::head(esca_pheno_climate[77:79],10)
 write_csv(esca_pheno_climate, "esca_pheno_climate.csv")
 ```
 
+##Write Rasters
+```{r}
+
+```
+
